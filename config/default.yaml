@@ -1,0 +1,79 @@
+# Development configuration — same shape as production.yaml with a smaller
+# question budget for quick local runs against two small local endpoints.
+
+# ── Student / research agent ────────────────────────────────
+research_provider: openai
+research_base_url: ${STUDENT_BASE_URL}
+research_model: ${STUDENT_MODEL}
+research_api_key: ${STUDENT_API_KEY}
+research_max_tokens: 4096
+research_temperature: 0.7
+
+# ── Teacher ─────────────────────────────────────────────────
+teacher_provider: openai
+teacher_base_url: ${TEACHER_BASE_URL}
+teacher_model: ${TEACHER_MODEL}
+teacher_api_key: ${TEACHER_API_KEY}
+teacher_max_tokens: 16000
+teacher_temperature: 0.3
+
+# Infrastructure
+redis_url: redis://localhost:6379/0
+
+# Storage paths
+dataset_base_path: /root/datasets
+logs_base_path: /root/logs
+checkpoint_base_path: /root/checkpoints
+config_base_path: /root/config
+
+# Dataset storage
+raw_txt_rotation_size_gb: 1.0
+enable_immediate_sync: true
+
+# Pipeline — smaller budget for quick iteration
+max_questions_per_topic: 10
+difficulty_levels:
+  - beginner
+  - intermediate
+  - expert
+  - advanced
+min_answer_length: 500
+min_quality_score: 0.65
+quality_retry_attempts: 2
+
+# Exhaustion detection
+exhaustion_similarity_threshold: 0.88
+exhaustion_min_questions: 10
+
+# Duplicate detection
+duplicate_exact_threshold: 1.0
+duplicate_semantic_threshold: 0.90
+embedding_cache_size: 10000
+
+# Workers
+num_topic_workers: 1
+num_question_workers: 1
+num_answer_workers: 2
+num_quality_workers: 1
+
+# Monitoring
+log_level: INFO
+enable_rich_dashboard: true
+dashboard_refresh_rate: 1.0
+
+# Checkpointing
+checkpoint_interval_minutes: 10
+auto_resume_on_start: true
+
+# Rate limiting
+api_request_delay: 0.5
+max_retries: 5
+retry_base_delay: 2.0
+
+# Multi-teacher
+teachers_config_path: config/teachers.yaml
+enable_multi_teacher: true
+min_teachers_required: 1
+merger_consensus_threshold: 2
+teacher_query_timeout: 300.0
+teacher_concurrency_limit: 4

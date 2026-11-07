@@ -1,0 +1,22 @@
+# Python Dependencies
+# Autonomous AI Knowledge Distillation System
+
+# Core
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Async & HTTP
+asyncio>=3.4.3
+httpx>=0.27.0
+aiofiles>=24.1.0
+
+# Redis
+redis>=5.0.0,<9
+# NOTE: redis-py 8.x sets client-level socket_timeout=5s by default, which
+# races BRPOP's 5s blocking wait. QueueManager overrides it explicitly (30s).
+
+# Rich Terminal UI
+rich>=13.7.0
+
+# Utilities
+python-dateutil>=2.8.2

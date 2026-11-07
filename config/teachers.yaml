@@ -1,0 +1,133 @@
+# Teacher registry.
+#
+# Any number of teachers can answer the same question; the merger reconciles
+# them (consensus extraction, contradiction detection, enrichment). With a
+# single teacher the merger is skipped — it would only re-emit the same answer.
+#
+# base_url values are ${VAR} placeholders expanded from .env at load time.
+# A teacher whose URL expands to empty is unreachable and should stay disabled,
+# otherwise every answer pays a health-check timeout.
+#
+# The student model is listed here but must stay disabled: if the model that
+# asks and grades the questions also answers them, grading becomes self-play.
+
+teachers:
+  teacher-primary:
+    name: "Primary Teacher"
+    provider: openai
+    base_url: "${TEACHER_BASE_URL}"
+    model: "${TEACHER_MODEL}"
+    api_key: "${TEACHER_API_KEY}"
+    max_tokens: 16000
+    temperature: 0.3
+    weight: 1.0
+    strengths:
+      - "reasoning"
+      - "general-knowledge"
+      - "code"
+      - "long-context"
+    enabled: true
+
+  # --- Student model: keep disabled (self-play guard) ---
+  student:
+    name: "Student model (do not enable as teacher)"
+    provider: openai
+    base_url: "${STUDENT_BASE_URL}"
+    model: "${STUDENT_MODEL}"
+    api_key: "${STUDENT_API_KEY}"
+    max_tokens: 16000
+    temperature: 0.3
+    weight: 0.0
+    strengths:
+      - "deep-reasoning"
+      - "code"
+    enabled: false
+
+  # --- Additional teachers. Set the env var, then flip enabled to true. ---
+  teacher-secondary:
+    name: "Secondary Teacher"
+    provider: openai
+    base_url: "${TEACHER2_BASE_URL}"
+    model: "${TEACHER2_MODEL}"
+    api_key: "${TEACHER2_API_KEY}"
+    max_tokens: 16000
+    temperature: 0.3
+    weight: 0.0
+    strengths: ["broad-knowledge"]
+    enabled: false
+
+  teacher-tertiary:
+    name: "Tertiary Teacher"
+    provider: openai
+    base_url: "${TEACHER3_BASE_URL}"
+    model: "${TEACHER3_MODEL}"
+    api_key: "${TEACHER3_API_KEY}"
+    max_tokens: 16000
+    temperature: 0.3
+    weight: 0.0
+    strengths: ["chain-of-thought"]
+    enabled: false
+
+  teacher-quaternary:
+    name: "Quaternary Teacher"
+    provider: openai
+    base_url: "${TEACHER4_BASE_URL}"
+    model: "${TEACHER4_MODEL}"
+    api_key: "${TEACHER4_API_KEY}"
+    max_tokens: 8000
+    temperature: 0.3
+    weight: 0.0
+    strengths: ["general-knowledge"]
+    enabled: false
+
+  # --- Hosted API example ---
+  hosted-reasoner:
+    name: "Hosted Reasoning API"
+    provider: openai
+    base_url: "https://api.example.com/v1"
+    model: "example-reasoner"
+    api_key: "${HOSTED_API_KEY}"
+    max_tokens: 16000
+    temperature: 0.3
+    weight: 0.0
+    strengths: ["deep-reasoning"]
+    enabled: false
+
+  # --- Local servers ---
+  local-a:
+    name: "Local Server A"
+    provider: openai
+    base_url: "http://localhost:8000/v1"
+    model: "local-model-a"
+    api_key: ""
+    max_tokens: 16000
+    temperature: 0.3
+    weight: 0.0
+    strengths: ["general-knowledge"]
+    enabled: false
+
+  local-b:
+    name: "Local Server B"
+    provider: openai
+    base_url: "http://localhost:8001/v1"
+    model: "local-model-b"
+    api_key: ""
+    max_tokens: 8192
+    temperature: 0.3
+    weight: 0.0
+    strengths: ["concise"]
+    enabled: false
+
+# Merger settings
+merger:
+  consensus_threshold: 2        # Claims supported by >= N teachers count as consensus
+  min_teachers_required: 1      # Single-teacher runs must still succeed
+  query_timeout_seconds: 300    # Per-teacher query timeout
+  concurrency_limit: 12         # Max concurrent teacher queries
+  contradiction_flag_threshold: 0.7
+
+# Retry settings
+retry:
+  max_retries: 5
+  retry_temperature_increment: 0.1
+  backoff_multiplier: 2.0

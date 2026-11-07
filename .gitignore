@@ -1,0 +1,25 @@
+# environment / secrets
+.env
+*.env
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# outputs — datasets are large and machine-specific
+datasets/
+data/
+logs/
+*.log
+checkpoints/
+knowledge_graph.json
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+.claude/
