@@ -98,7 +98,7 @@ def question_hash(question: str) -> str:
 
 # ── Record building ─────────────────────────────────────────
 
-def build_record(rec: dict, include_reasoning: bool) -> dict | None:
+def build_record(rec: dict, include_reasoning: bool, fmt: str = "messages") -> dict | None:
     """Turn one pipeline record into a training record, or None to drop it."""
     question = clean_text(rec.get("question"))
     answer = clean_text(rec.get("answer"))
@@ -107,13 +107,27 @@ def build_record(rec: dict, include_reasoning: bool) -> dict | None:
     if not question or not answer:
         return None
 
+    topic = clean_topic(rec.get("topic"))
+    difficulty = (rec.get("difficulty") or "").strip() or "unknown"
+
+    if fmt == "flat":
+        out = {
+            "id": None,  # assigned after filtering, so ids stay contiguous
+            "topic": topic,
+            "difficulty": difficulty,
+            "question": question,
+            "reasoning": reasoning if include_reasoning else "",
+            "answer": answer,
+        }
+        return out
+
     out = {
         "messages": [
             {"role": "user", "content": question},
             {"role": "assistant", "content": answer},
         ],
-        "topic": clean_topic(rec.get("topic")),
-        "difficulty": (rec.get("difficulty") or "").strip() or "unknown",
+        "topic": topic,
+        "difficulty": difficulty,
     }
     if include_reasoning and reasoning:
         out["reasoning"] = reasoning
@@ -132,6 +146,10 @@ def main() -> int:
     ap.add_argument("--val-ratio", type=float, default=0.02, help="validation split fraction")
     ap.add_argument("--seed", type=int, default=42, help="shuffle seed")
     ap.add_argument("--no-reasoning", action="store_true", help="omit the reasoning field")
+    ap.add_argument("--format", choices=("messages", "flat"), default="messages",
+                    help="messages = chat records; flat = question/answer/reasoning columns "
+                         "like a classic HF dataset viewer table")
+    ap.add_argument("--id-prefix", default="hr2-", help="id prefix used by --format flat")
     ap.add_argument("--max-per-topic", type=int, default=0,
                     help="cap records per topic (0 = no cap)")
     args = ap.parse_args()
@@ -215,7 +233,9 @@ def main() -> int:
                 seen.add(h)
                 per_topic[cleaned_topic] += 1
 
-                record = build_record(rec, include_reasoning=not args.no_reasoning)
+                record = build_record(
+                    rec, include_reasoning=not args.no_reasoning, fmt=args.format
+                )
                 if record is None:
                     stats["dropped_empty"] += 1
                     continue
@@ -226,6 +246,11 @@ def main() -> int:
         return 1
 
     random.Random(args.seed).shuffle(records)
+
+    if args.format == "flat":
+        # Contiguous, stable ids: hr2-000001 …
+        for i, row in enumerate(records, 1):
+            row["id"] = f"{args.id_prefix}{i:06d}"
     val_n = max(1, int(len(records) * args.val_ratio)) if args.val_ratio > 0 else 0
     val, train = records[:val_n], records[val_n:]
 
@@ -241,8 +266,14 @@ def main() -> int:
     stats["train"] = len(train)
     stats["val"] = len(val)
     stats["unique_topics"] = len(per_topic)
-    stats["avg_answer_chars"] = int(sum(len(r["messages"][1]["content"]) for r in records) / len(records))
-    stats["avg_question_chars"] = int(sum(len(r["messages"][0]["content"]) for r in records) / len(records))
+    if args.format == "flat":
+        answers = [r["answer"] for r in records]
+        questions = [r["question"] for r in records]
+    else:
+        answers = [r["messages"][1]["content"] for r in records]
+        questions = [r["messages"][0]["content"] for r in records]
+    stats["avg_answer_chars"] = int(sum(len(a) for a in answers) / len(records))
+    stats["avg_question_chars"] = int(sum(len(q) for q in questions) / len(records))
     stats["with_reasoning"] = sum(1 for r in records if r.get("reasoning"))
     stats["top_topics"] = per_topic.most_common(15)
     stats["quality_buckets"] = dict(sorted(score_buckets.items()))
