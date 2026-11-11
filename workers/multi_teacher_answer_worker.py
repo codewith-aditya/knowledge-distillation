@@ -26,6 +26,7 @@ from distill.core.teacher_merger import TeacherMerger
 from distill.core.teacher_client import build_teacher_prompt
 from distill.orchestration.queue_manager import QueueManager
 from distill.monitoring.logger import get_logger
+from distill.utils.topic_utils import leaf_topic
 
 
 class MultiTeacherAnswerWorker:
@@ -107,7 +108,10 @@ class MultiTeacherAnswerWorker:
     async def _process_task(self, task: dict):
         try:
             question = task["question"]
-            topic = task["topic"]
+            # Sanitize here too: items already in the queue may carry derived
+            # "Related to: ..." labels from before the rotation fix, and this is
+            # the worker that writes TOPIC into the dataset.
+            topic = leaf_topic(task["topic"])
             difficulty = task["difficulty"]
             question_id = task["question_id"]
             retry_count = task.get("retry_count", 0)

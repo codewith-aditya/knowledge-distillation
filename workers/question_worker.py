@@ -19,6 +19,7 @@ from distill.core.research_agent import ResearchAgent
 from distill.orchestration.queue_manager import QueueManager
 from distill.quality.duplicate_detector import DuplicateDetector
 from distill.monitoring.logger import get_logger
+from distill.utils.topic_utils import leaf_topic
 
 # Fabricated-concept tells: the old run produced 13k questions asking the teacher
 # to "formally derive **<made-up primitive>**". These never belong in a dataset.
@@ -96,8 +97,13 @@ class QuestionWorker:
         """Mark a topic done and refill the topic queue with a fresh topic."""
         self.stats["topics_exhausted"] += 1
         redis = self.queue_manager.redis
+
+        # Store the leaf name, never a derived variant: "Related to: X" must not
+        # become the parent of the next rotation step, or labels compound into
+        # "Related to: Related to: ..." (seen: 4.7k-char topic names).
+        leaf = self._leaf_topic(topic)
         try:
-            await redis.sadd("distill:topics_retired", topic)
+            await redis.sadd("distill:topics_retired", leaf)
         except Exception:
             pass
 
@@ -107,15 +113,56 @@ class QuestionWorker:
             self.stats["topics_rotated"] += 1
             self.logger.info(
                 "Topic retired — queued next topic",
-                topic=topic, reason=reason, next_topic=next_topic,
+                topic=leaf, reason=reason, next_topic=next_topic,
             )
-        else:
-            # Pool drained: fall back to discovery-style expansion so the
-            # pipeline never stalls with an empty topic queue.
-            await self.queue_manager.enqueue_topic(
-                f"Related to: {topic}", difficulty="beginner", priority=5
+            return
+
+        # Pool drained: recycle from the seed list instead of deriving a new
+        # label. A fresh pass over the seeds is still useful data (new questions,
+        # deduped against the shared question index), whereas "Related to: ..."
+        # chains only produce unusable topic metadata.
+        recycled = await self._recycle_seed_topic()
+        if recycled:
+            self.stats["topics_rotated"] += 1
+            self.logger.info(
+                "Topic retired — pool empty, recycling seed topic",
+                topic=leaf, reason=reason, next_topic=recycled,
             )
-            self.logger.info("Topic retired — pool empty, queued related topic", topic=topic, reason=reason)
+            return
+
+        self.logger.warning("Topic retired but no replacement available", topic=leaf, reason=reason)
+
+    @staticmethod
+    def _leaf_topic(topic: str) -> str:
+        """Strip accumulated 'Related to:' prefixes and cap the label length."""
+        return leaf_topic(topic)
+
+    async def _recycle_seed_topic(self):
+        """Clear the retired set and hand out a seed topic for a fresh pass."""
+        redis = self.queue_manager.redis
+        try:
+            from distill.core.seed_topics import SEED_TOPICS
+
+            for seed in SEED_TOPICS:
+                leaf = self._leaf_topic(seed)
+                is_retired = await redis.sismember("distill:topics_retired", leaf)
+                if is_retired:
+                    continue
+                # Also reset its question budget so it can produce again.
+                await redis.delete(f"distill:topiccount:{DuplicateDetector._topic_slug(leaf)}")
+                await self.queue_manager.enqueue_topic(leaf, difficulty="beginner", priority=5)
+                return leaf
+
+            # Every seed has been used at least once: start a new pass.
+            await redis.delete("distill:topics_retired")
+            seed = self._leaf_topic(SEED_TOPICS[0])
+            await redis.delete(f"distill:topiccount:{DuplicateDetector._topic_slug(seed)}")
+            await self.queue_manager.enqueue_topic(seed, difficulty="beginner", priority=5)
+            self.logger.info("All seed topics used — retired set cleared for a new pass")
+            return seed
+        except Exception as e:
+            self.logger.warning("Seed recycle failed", error=e)
+            return None
 
     async def _pull_next_topic(self):
         """Pop an unused seed/rotating topic from the shared pool."""
@@ -189,7 +236,7 @@ class QuestionWorker:
 
     async def _process_task(self, task: dict):
         try:
-            topic = task["topic"]
+            topic = self._leaf_topic(task["topic"])
             context = task.get("context", {}) or {}
             previous_qa = context.get("previous_qa", [])
 
